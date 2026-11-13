@@ -77,6 +77,7 @@ def bili_video(bvid: str) -> dict:
             "share_rate": round(s.get("share", 0) / view, 4),
             "reply_rate": round(s.get("reply", 0) / view, 4),
         },
+        "owner_mid": d.get("owner", {}).get("mid"),
         "source": "B站公开接口 x/web-interface/view",
     }
 
@@ -96,25 +97,101 @@ def bili_comments(aid: int, n: int = 30) -> list[dict]:
     return out[:n]
 
 
+def _bili_item(v: dict, source: str) -> dict:
+    s = v["stat"]
+    cat = " ".join(str(v.get(k, "")) for k in ("tname", "tnamev2", "pid_name_v2")).strip()
+    return {
+        "platform": "bilibili", "bvid": v["bvid"], "title": v["title"], "category": cat,
+        "owner": v["owner"]["name"], "owner_mid": v["owner"].get("mid"), "duration_s": v.get("duration"),
+        "pubdate": v.get("pubdate"), "cover": v.get("pic"), "url": f"https://www.bilibili.com/video/{v['bvid']}",
+        "stats": {"view": s.get("view", 0), "like": s.get("like", 0), "favorite": s.get("favorite", 0),
+                  "reply": s.get("reply", 0)},
+        "rcmd_reason": (v.get("rcmd_reason") or {}).get("content", "") if isinstance(v.get("rcmd_reason"), dict) else "",
+        "list": source,
+    }
+
+
 def bili_popular(n: int = 50, life_only: bool = True) -> list[dict]:
+    """全站热门 (filtered to life-ish categories by keyword)."""
     items: list[dict] = []
     for pn in range(1, 4):
         d = _get("https://api.bilibili.com/x/web-interface/popular", ps=20, pn=pn)
         for v in d.get("list", []):
-            cat = " ".join(str(v.get(k, "")) for k in ("tname", "tnamev2", "pid_name_v2"))
-            if life_only and not any(k in cat for k in LIFE_KEYWORDS):
+            it = _bili_item(v, "全站热门")
+            if life_only and not any(k in it["category"] for k in LIFE_KEYWORDS):
                 continue
-            s = v["stat"]
-            items.append({
-                "platform": "bilibili", "bvid": v["bvid"], "title": v["title"], "category": cat.strip(),
-                "owner": v["owner"]["name"], "duration_s": v["duration"], "cover": v.get("pic"),
-                "url": f"https://www.bilibili.com/video/{v['bvid']}",
-                "stats": {"view": s["view"], "like": s["like"], "favorite": s["favorite"], "reply": s["reply"]},
-                "rcmd_reason": (v.get("rcmd_reason") or {}).get("content", ""),
-            })
+            items.append(it)
         if len(items) >= n:
             break
     return items[:n]
+
+
+BILI_LIFE_RID = 160  # 生活分区（含 日常 / 亲子 / 搞笑 / 美食圈 等子区）
+
+
+def bili_life_ranking(n: int = 60) -> list[dict]:
+    """生活分区排行榜 (3-day window) — more on-topic than the global popular list."""
+    d = _get("https://api.bilibili.com/x/web-interface/ranking/v2", rid=BILI_LIFE_RID, type="all")
+    return [_bili_item(v, "生活区排行") for v in d.get("list", [])[:n]]
+
+
+_FOLLOWERS: dict[int, int | None] = {}
+
+
+def bili_followers(mid: int | None) -> int | None:
+    if not mid:
+        return None
+    if mid not in _FOLLOWERS:
+        try:
+            _FOLLOWERS[mid] = int(_get("https://api.bilibili.com/x/relation/stat", vmid=mid).get("follower", 0))
+        except Exception:
+            _FOLLOWERS[mid] = None
+    return _FOLLOWERS[mid]
+
+
+MIN_FOLLOWERS = 1000
+
+
+def viral_metrics(views: int, followers: int | None) -> dict:
+    """爆款系数 = 播放 / 粉丝数. >1 means the topic travelled beyond the creator's own audience —
+    that is the signal a small new account can actually borrow (big creators' views are mostly their fans)."""
+    if not followers:
+        return {"followers": followers, "viral_ratio": None, "viral_level": "未知"}
+    r = views / followers
+    if followers < MIN_FOLLOWERS:  # tiny accounts: ratio is noise (flukes, reposts, new alts)
+        return {"followers": followers, "viral_ratio": round(r, 2), "viral_level": "粉丝过少·仅供参考",
+                "small_creator": True, "low_sample": True}
+    level = ("破圈爆款" if r >= 3 else "选题带量" if r >= 1 else "正常" if r >= 0.2 else "主要靠粉丝")
+    return {"followers": followers, "viral_ratio": round(r, 2), "viral_level": level,
+            "small_creator": followers < 100_000}
+
+
+def trending_candidates(n: int = 40) -> dict:
+    """Life-area ranking + filtered global popular, de-duplicated, enriched with 爆款系数, ranked so that
+    topic-driven hits (high ratio, small creators) come first."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    items, errors, seen = [], [], set()
+    for fn in (bili_life_ranking, bili_popular):
+        try:
+            for it in fn():
+                if it["bvid"] not in seen:
+                    seen.add(it["bvid"])
+                    items.append(it)
+        except Exception as e:
+            errors.append(f"{fn.__name__}: {e}")
+    items = items[: max(n, 1) * 2]
+    with ThreadPoolExecutor(max_workers=4) as ex:  # gentle: B站 returns 412 when hammered
+        followers = list(ex.map(lambda it: bili_followers(it.get("owner_mid")), items))
+    now = time.time()
+    for it, f in zip(items, followers):
+        it.update(viral_metrics(it["stats"]["view"], f))
+        if it.get("pubdate"):
+            it["views_per_hour"] = round(it["stats"]["view"] / max((now - it["pubdate"]) / 3600, 0.5), 1)
+    # capped so one 3000x fluke does not drown out steady 5-20x topic-driven hits; low-sample last
+    items.sort(key=lambda it: (bool(it.get("low_sample")), -min(it.get("viral_ratio") or 0, 50)))
+    return {"items": items[:n], "errors": errors,
+            "note": "按爆款系数（播放/粉丝）排序；高系数 = 选题本身带量，最值得小号借鉴"}
 
 
 # ---------------- DeepSeek Search / Fetch ----------------
@@ -187,6 +264,7 @@ def resolve_source(text: str, screenshots: list[str] | None = None) -> dict:
             platform = bundle["platform"] = "bilibili"
         if platform == "bilibili" and ident:
             v = bili_video(ident)
+            v["derived"].update(viral_metrics(v["stats"]["view"], bili_followers(v.get("owner_mid"))))
             bundle["video"] = v
             bundle["comments"] = bili_comments(v["aid"])
         elif platform == "youtube" and ident:

@@ -23,8 +23,11 @@ RUBRICS: dict[str, dict] = {
             "feasibility": "按演员档案可拍性（宝宝作息、安全、场地、成本 < ¥200）",
             "differentiation": "切入角度是否独特",
             "series": "是否能延展成系列（如宝宝月龄里程碑）",
+            "signal_quality": "热点改编是否借的是高爆款系数（播放/粉丝）的选题而非大 UP 的粉丝量；"
+                              "数量是否正好为 required_count，且热点改编与月龄日历两类都有",
+            "baby_appropriate": "里程碑选题是否符合当前月龄、写成记录/尝试而非训练达标、遵守 safety",
         },
-        "veto": ["feasibility"],
+        "veto": ["feasibility", "baby_appropriate"],
     },
     "script": {
         "role": "短视频总编，专挑脚本毛病。",

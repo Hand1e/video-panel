@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 from typing import Callable
 
-from . import llm, sources, store
+from . import milestones, llm, sources, store
 from .loop import refine
 
 REPORT_EXAMPLE = {
@@ -80,26 +80,46 @@ def analyze_topic(text: str, screenshots: list[str] | None = None,
     return out
 
 
-TOPICS_SYSTEM = """你是生活区账号主编。从今日热门列表中，为这个三口之家（我 + 爱人 + 4个月宝宝）挑出 3 个能在家拍的选题。
-每个选题必须：引用来源热门视频（title/url）、给出我家版本的切入角度、可拍性说明（谁出镜、宝宝如何捕捉、成本、机位）、预计时长。
-同时参考月龄里程碑（4个月：抬头、笑出声、抓握、翻身前后）和历史复盘。
-只输出 json：{"topics":[{"title":"","angle":"","inspired_by":[{"title":"","url":""}],"cast":["me","baby"],
-"feasibility":"","cameras":["pov","tripod"],"cost_cny":0,"duration_s":60,"series_potential":""}]}"""
+TOPIC_COUNT = 5
+
+TOPICS_SYSTEM = f"""你是生活区账号主编。为这个三口之家（我 + 爱人 + 宝宝，见 cast）挑出 **正好 {TOPIC_COUNT} 个** 能在家拍的选题。
+两类来源都要有：
+1. 热点改编（source="trending"）：从 trending 里选。**优先爆款系数（viral_ratio = 播放/粉丝）高、small_creator=true 的视频**——
+   那说明是选题本身带量，小号可以借；viral_level="主要靠粉丝" 的大 UP 视频不要作为主要依据。low_sample=true（粉丝不足 1000）的系数是噪声，不要据此判断；
+   和育儿/家庭/日常无关的（游戏、电竞、时政）只借结构，不借内容。inspired_by 必须写出 viral_ratio。
+2. 月龄日历（source="milestone"）：从 milestone_calendar 的 now/next/events/seasonal 里选。不依赖热点、一定拍得出来、天然成系列。
+   next 里的里程碑是“下个月可能出现”，可以做成“提前准备、出现时就能拍到”的选题。
+建议 2-3 个热点改编 + 2-3 个月龄日历。每个选题必须：给出我家版本的切入角度、可拍性（谁出镜、宝宝如何捕捉、成本、机位）、预计时长。
+里程碑只写“记录/尝试”，不写“训练达标”；遵守 milestone_calendar 里的 safety。参考历史复盘 retrospectives。
+只输出 json：{{"topics":[{{"title":"","source":"trending|milestone","angle":"","why_now":"",
+"inspired_by":[{{"title":"","url":"","viral_ratio":null}}],"cast":["me","baby"],
+"feasibility":"","cameras":["pov","tripod"],"cost_cny":0,"duration_s":60,"series_potential":""}}]}}"""
 
 
 def daily_topics(on_round: Callable | None = None) -> dict:
     try:
-        trending = sources.bili_popular(40)
+        tr = sources.trending_candidates(40)
     except Exception as e:
-        trending = [{"error": str(e)}]
+        tr = {"items": [], "errors": [str(e)]}
+    trending = tr["items"]
     cast = store.get_cast()
+    cal = milestones.calendar(cast)
     retro = store.recall("retrospective", limit=10)
+    # compact view for the model: titles + numbers, no cover urls
+    brief = [{k: it.get(k) for k in ("title", "url", "category", "owner", "list", "followers", "viral_ratio",
+                                      "viral_level", "small_creator", "low_sample", "views_per_hour", "duration_s")}
+             | {"view": it["stats"]["view"]} for it in trending]
 
     def generate(feedback, prev):
-        return llm.chat_json("daily_topics", TOPICS_SYSTEM,
-                             {"trending": trending, "cast": cast, "retrospectives": retro,
-                              "critic_feedback": feedback, "previous": prev}, thinking=True)
+        out = llm.chat_json("daily_topics", TOPICS_SYSTEM,
+                            {"trending": brief, "milestone_calendar": cal, "cast": cast, "retrospectives": retro,
+                             "critic_feedback": feedback, "previous": prev}, thinking=True)
+        out["topics"] = [t for t in out.get("topics", []) if isinstance(t, dict)][:TOPIC_COUNT]
+        return out
 
-    out = refine("topics", generate, {"cast": cast}, on_round=on_round).to_dict()
+    out = refine("topics", generate, {"cast": cast, "required_count": TOPIC_COUNT,
+                                      "milestone_calendar": cal}, on_round=on_round).to_dict()
     out["trending"] = trending
+    out["trending_errors"] = tr.get("errors", [])
+    out["milestone_calendar"] = cal
     return out

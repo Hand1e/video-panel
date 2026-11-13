@@ -140,7 +140,7 @@ function renderAnalysis(a) {
   return `<div class="card">
     <h2><span class="verdict ${verdictCls(b.verdict)}">${esc(b.verdict)}</span>${esc(b.score)} / 10 · 置信度 ${esc(b.confidence)}${mockTag(b)}</h2>
     <p><b>${esc(b.one_liner)}</b></p>
-    ${v ? `<p class="hint">来源：<a href="${esc(v.url)}" target="_blank">${esc(v.title)}</a> · 播放 ${esc(v.stats?.view)} · 点赞率 ${esc(v.derived?.like_rate)} · 收藏率 ${esc(v.derived?.favorite_rate)}</p>` : ""}
+    ${v ? `<p class="hint">来源：<a href="${esc(v.url)}" target="_blank">${esc(v.title)}</a> · 播放 ${esc(v.stats?.view)} · 点赞率 ${esc(v.derived?.like_rate)} · 收藏率 ${esc(v.derived?.favorite_rate)} · UP 粉丝 ${fmtNum(v.derived?.followers)} · ${viralTag(v.derived?.viral_ratio, v.derived?.viral_level, v.derived?.low_sample)}</p>` : ""}
     ${(src.gaps || []).length ? `<p class="hint">⚠ 数据缺口：${src.gaps.map(esc).join("；")}</p>` : ""}
     <h3>为什么火（钩子拆解）</h3><ul>${(b.hook_breakdown || []).map((h) => `<li>${esc(h.point)}${ev(h)}</li>`).join("")}</ul>
     <h3>数据</h3><p>${esc(b.data?.summary)}</p>${ev(b.data)}
@@ -157,14 +157,45 @@ function renderAnalysis(a) {
   </div>${loopHtml(a, "分析")}`;
 }
 
+function viralTag(r, level, low) {
+  if (r === null || r === undefined) return `<span class="hint">爆款系数 未知</span>`;
+  const cls = low ? "v-adapt" : r >= 1 ? "v-go" : r >= 0.2 ? "v-adapt" : "v-no";
+  return `<span class="vr ${cls}" title="播放 ÷ 粉丝数：越高说明越是选题本身带量">爆款系数 ${r}${level ? " · " + esc(level) : ""}</span>`;
+}
+
+function renderCalendar(cal) {
+  if (!cal || cal.age_months === null || cal.age_months === undefined) return "";
+  const block = (title, m) => m ? `<h3>${title}</h3><p>${m.milestones.map(esc).join("、")}</p>
+    <p class="hint">选题种子：${m.ideas.map(esc).join("；")}</p><p class="hint">安全：${m.safety.map(esc).join("；")}</p>` : "";
+  return `<details class="card"><summary><b>月龄日历</b>：宝宝 ${cal.age_months} 个月</summary>
+    ${block("这个月常见", cal.now)}${block("下个月可能出现（提前准备好机位）", cal.next)}
+    ${(cal.events || []).length ? `<p>纪念日：${cal.events.map(esc).join("、")}</p>` : ""}
+    ${(cal.seasonal || []).length ? `<p>当季：${cal.seasonal.map(esc).join("、")}</p>` : ""}
+    <p class="hint">${esc(cal.note)}</p></details>`;
+}
+
+function renderTrending(items, errors) {
+  if (!items || !items.length) return (errors || []).length ? `<p class="hint">⚠ 热门获取失败：${errors.map(esc).join("；")}</p>` : "";
+  return `<details class="card"><summary><b>参考热门</b>：${items.length} 条，按爆款系数排序</summary>
+    <p class="hint">爆款系数 = 播放 ÷ UP 主粉丝数。大于 1 说明播放超出了粉丝圈，是选题本身带量，最值得小号借鉴。</p>
+    <table class="tr"><tr><th>标题</th><th>榜单</th><th>UP 粉丝</th><th>播放</th><th>系数</th></tr>
+    ${items.map((it) => `<tr><td><a href="${esc(it.url)}" target="_blank">${esc(it.title)}</a>${it.small_creator ? ' <span class="mockTag" style="background:#d3f9d8;color:#2b8a3e">小UP</span>' : ""}</td>
+      <td>${esc(it.list)}</td><td>${fmtNum(it.followers)}</td><td>${fmtNum(it.stats?.view)}</td><td>${viralTag(it.viral_ratio, it.low_sample ? "粉丝过少·仅供参考" : "", it.low_sample)}</td></tr>`).join("")}
+    </table></details>`;
+}
+const fmtNum = (n) => (n === null || n === undefined ? "?" : n >= 1e4 ? (n / 1e4).toFixed(1) + "万" : String(n));
+
 function renderTopics(t) {
   const b = t.best || {};
-  return `<div class="card"><h2>今日选题${mockTag(b)}</h2><div class="angles">${(b.topics || []).map((x, i) =>
-    `<div class="angle"><b>${esc(x.title)}</b><p>${esc(x.angle)}</p>
+  const srcTag = (x) => x.source === "milestone" ? `<span class="src src-m">月龄日历</span>` : `<span class="src src-t">热点改编</span>`;
+  return `<div class="card"><h2>今日选题（${(b.topics || []).length} 个）${mockTag(b)}</h2><div class="angles">${(b.topics || []).map((x, i) =>
+    `<div class="angle">${srcTag(x)}<b>${esc(x.title)}</b><p>${esc(x.angle)}</p>
+      ${x.why_now ? `<p class="hint">为什么是现在：${esc(x.why_now)}</p>` : ""}
       <p class="hint">出镜：${esc((x.cast || []).join("、"))} · 机位：${esc((x.cameras || []).join("、"))} · ${esc(x.duration_s)}s · ¥${esc(x.cost_cny)}</p>
       <p class="hint">${esc(x.feasibility)} · 系列：${esc(x.series_potential)}</p>
-      <p class="hint">灵感：${(x.inspired_by || []).map((s) => `<a href="${esc(s.url)}" target="_blank">${esc(s.title)}</a>`).join("；")}</p>
-      <button data-topic="${i}">做这个 →</button></div>`).join("")}</div></div>${loopHtml(t, "选题")}`;
+      ${(x.inspired_by || []).length ? `<p class="hint">灵感：${x.inspired_by.map((s) => `<a href="${esc(s.url)}" target="_blank">${esc(s.title)}</a> ${viralTag(s.viral_ratio)}`).join("；")}</p>` : ""}
+      <button data-topic="${i}">做这个 →</button></div>`).join("")}</div></div>
+    ${renderCalendar(t.milestone_calendar)}${renderTrending(t.trending, t.trending_errors)}${loopHtml(t, "选题")}`;
 }
 
 $("#topicsOut").addEventListener("click", async (e) => {

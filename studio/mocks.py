@@ -66,12 +66,24 @@ def _analysis(p: dict) -> dict:
 
 
 def _topics(p: dict) -> dict:
-    tr = [t for t in p.get("trending", []) if "title" in t][:3] or [{"title": "（无热门数据）", "url": ""}]
-    angles = ["4个月宝宝第一次 XX 的反应", "新手爸妈夜班交接实录", "爸爸一个人带娃的 24 小时"]
-    return {"topics": [{"title": f"{TAG}{angles[i % 3]}", "angle": f"借鉴「{t['title'][:16]}」的结构",
-                        "inspired_by": [{"title": t["title"], "url": t.get("url", "")}], "cast": ["me", "baby"],
-                        "feasibility": "在家可拍，宝宝捕捉式", "cameras": ["pov", "tripod"], "cost_cny": 0,
-                        "duration_s": 60, "series_potential": "月龄里程碑系列"} for i, t in enumerate(tr)]}
+    tr = sorted([t for t in p.get("trending", []) if "title" in t], key=lambda t: -(t.get("viral_ratio") or 0))[:3]
+    tr = tr or [{"title": "（无热门数据）", "url": "", "viral_ratio": None}]
+    cal = p.get("milestone_calendar") or {}
+    seeds = ((cal.get("now") or {}).get("ideas") or [])[:1] + ((cal.get("next") or {}).get("ideas") or [])[:1]
+    seeds = (seeds + ["宝宝的第一个冬天"])[:2]
+    angles = ["新手爸妈夜班交接实录", "爸爸一个人带娃的 24 小时", "宝宝视角看爸爸做饭"]
+    topics = [{"title": f"{TAG}{angles[i % 3]}", "source": "trending", "angle": f"借鉴「{t['title'][:16]}」的结构",
+               "why_now": f"爆款系数 {t.get('viral_ratio')}", "inspired_by": [
+                   {"title": t["title"], "url": t.get("url", ""), "viral_ratio": t.get("viral_ratio")}],
+               "cast": ["me", "baby"], "feasibility": "在家可拍，宝宝捕捉式", "cameras": ["pov", "tripod"],
+               "cost_cny": 0, "duration_s": 60, "series_potential": "爸爸带娃系列"} for i, t in enumerate(tr)]
+    topics += [{"title": f"{TAG}{x}", "source": "milestone", "angle": "月龄记录，长录捕捉",
+                "why_now": f"宝宝 {cal.get('age_months')} 个月", "inspired_by": [], "cast": ["me", "baby"],
+                "feasibility": "在家可拍；拍不到就改成'等待的过程'", "cameras": ["tripod", "pov"], "cost_cny": 0,
+                "duration_s": 45, "series_potential": "月龄里程碑系列"} for x in seeds]
+    while len(topics) < 5:
+        topics.append({**topics[-1], "title": f"{TAG}备选选题 {len(topics) + 1}"})
+    return {"topics": topics[:5]}
 
 
 def _script(p: dict) -> dict:
