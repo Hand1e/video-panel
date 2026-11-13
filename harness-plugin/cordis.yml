@@ -1,0 +1,6 @@
+# Patch for DeepSeek Harness: adds the Family Video Studio tools.
+# Replace the path with the absolute path on your machine, then:
+#   pnpm dsh web --patch ./harness-plugin/cordis.yml
+- insert:
+    - id: family-video-studio
+      name: 'C:/Users/<you>/video-studio/harness-plugin/studio-tools.ts'

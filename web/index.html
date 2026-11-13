@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>家庭视频工作台</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header>
+  <h1>🎬 家庭视频工作台</h1>
+  <span id="status" class="badge">…</span>
+  <nav>
+    <button data-tab="topics" class="on">① 选题</button>
+    <button data-tab="project">② 脚本·分镜</button>
+    <button data-tab="shoot">③ 拍摄清单</button>
+    <button data-tab="edit">④ 素材·剪辑</button>
+    <button data-tab="review">⑤ 审片·复盘</button>
+    <button data-tab="settings">⚙ 设置</button>
+  </nav>
+  <select id="projectSel" title="当前项目"></select>
+</header>
+
+<main>
+  <!-- ① topics -->
+  <section id="tab-topics" class="tab on">
+    <div class="card">
+      <h2>单个选题分析</h2>
+      <p class="hint">粘贴视频链接（B站/抖音/小红书/快手/YouTube）或关键词；抖音/小红书拿不到数据时，附上截图（点赞/评论区）效果更好。</p>
+      <form id="analyzeForm">
+        <textarea name="text" rows="2" placeholder="https://www.bilibili.com/video/BV... 或 「4个月宝宝 第一次笑」" required></textarea>
+        <input type="file" name="screenshots" accept="image/*" multiple>
+        <button>分析 →</button>
+      </form>
+    </div>
+    <div class="card">
+      <h2>今日热门选题</h2>
+      <p class="hint">从 B站热门里筛生活相关内容，改编成你家能拍的选题。（也可以用 Harness 每天 9:00 定时跑）</p>
+      <button id="dailyBtn">拉取今日选题</button>
+    </div>
+    <div id="topicsOut"></div>
+  </section>
+
+  <!-- ② script + storyboard -->
+  <section id="tab-project" class="tab">
+    <div class="card row">
+      <input id="newTitle" placeholder="新项目标题（或从选题页带入）">
+      <button id="newProjectBtn">新建项目</button>
+      <button id="scriptBtn">生成脚本</button>
+      <button id="boardBtn">生成分镜</button>
+      <label>画幅 <select id="aspectSel"><option value="">跟脚本</option><option>16:9</option><option>9:16</option></select></label>
+    </div>
+    <div id="scriptOut"></div>
+    <div id="boardOut" class="board"></div>
+  </section>
+
+  <!-- ③ shot list -->
+  <section id="tab-shoot" class="tab">
+    <div id="shootOut"></div>
+  </section>
+
+  <!-- ④ footage + edit -->
+  <section id="tab-edit" class="tab">
+    <div class="card">
+      <h2>素材</h2>
+      <p class="hint">只有素材也可以：新建一个项目，导入素材，点“一键直剪”。大文件建议用“引用本地文件夹”，不复制。</p>
+      <div class="row">
+        <input type="file" id="footageFiles" accept="video/*" multiple>
+        <button id="uploadBtn">上传</button>
+      </div>
+      <div class="row">
+        <input id="folderPath" placeholder="D:\\拍摄\\2026-11-13">
+        <button id="folderBtn">引用本地文件夹</button>
+      </div>
+      <div id="footageList" class="hint"></div>
+      <div class="row">
+        <input id="intent" placeholder="想剪成什么样？例：抖音 30 秒，温馨搞笑（可留空）">
+        <button id="analyzeFootageBtn">分析素材</button>
+        <button id="optionsBtn">出剪辑方案</button>
+        <button id="directBtn" class="primary">⚡ 一键直剪</button>
+      </div>
+      <div class="row"><input id="bgmPath" placeholder="BGM 文件路径（可选，用于卡点）"></div>
+    </div>
+    <div id="footageOut"></div>
+    <div id="optionsOut"></div>
+    <div id="cutOut"></div>
+  </section>
+
+  <!-- ⑤ review / retro -->
+  <section id="tab-review" class="tab">
+    <div id="reviewOut"></div>
+    <div class="card">
+      <h2>发布后复盘（用来校准以后的选题判断）</h2>
+      <form id="retroForm" class="grid">
+        <label>平台 <select name="platform"><option>bilibili</option><option>douyin</option><option>xiaohongshu</option><option>kuaishou</option><option>youtube</option></select></label>
+        <label>播放 <input name="views" type="number"></label>
+        <label>点赞 <input name="likes" type="number"></label>
+        <label>收藏 <input name="favorites" type="number"></label>
+        <label>完播率 <input name="completion_rate" type="number" step="0.01" placeholder="0.35"></label>
+        <label class="wide">备注 <input name="notes" placeholder="哪里好/哪里不好"></label>
+        <button>保存复盘</button>
+      </form>
+    </div>
+  </section>
+
+  <!-- settings -->
+  <section id="tab-settings" class="tab">
+    <div class="card">
+      <h2>出镜成员与器材</h2>
+      <p class="hint">工作台写脚本/分镜/拍摄清单时都会读这里。宝宝月龄、作息、是否打码请按实际改。</p>
+      <textarea id="castJson" rows="24" spellcheck="false"></textarea>
+      <button id="saveCast">保存</button>
+    </div>
+    <div class="card"><h2>状态</h2><pre id="statusJson"></pre></div>
+  </section>
+
+  <aside id="jobPanel" class="hidden">
+    <div class="jobHead"><b id="jobTitle"></b><button id="jobClose">×</button></div>
+    <div id="jobRounds"></div>
+    <pre id="jobLog"></pre>
+  </aside>
+</main>
+<script src="/static/app.js"></script>
+</body>
+</html>
